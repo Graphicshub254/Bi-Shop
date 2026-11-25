@@ -91,6 +91,32 @@ def is_private_ip(ip_str: str) -> bool:
     )
 
 
+def _is_explicitly_allowed_local_host(url: str) -> bool:
+    """Return True if *url*'s hostname is explicitly allowlisted in config.toml
+    under ``[security] allowed_local_hosts`` (still never allows cloud metadata)."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname or hostname in _BLOCKED_HOSTS:
+        return False
+
+    try:
+        from openjarvis.core.config import get_config_dir
+        import tomllib
+
+        cfg_path = get_config_dir() / "config.toml"
+        if not cfg_path.exists():
+            return False
+        data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        allowed = data.get("security", {}).get("allowed_local_hosts", [])
+        if isinstance(allowed, list):
+            return hostname in {str(h).strip().lower() for h in allowed}
+    except Exception:
+        return False
+    return False
+
+
 def check_ssrf(url: str) -> Optional[str]:
     """Check a URL for SSRF vulnerabilities.
 
@@ -99,6 +125,9 @@ def check_ssrf(url: str) -> Optional[str]:
     guard is security-critical, so it must never be silently skipped — or
     crash with ``ImportError`` — merely because Rust was not built.
     """
+    if _is_explicitly_allowed_local_host(url):
+        return None
+
     from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
 
     if RUST_AVAILABLE:
