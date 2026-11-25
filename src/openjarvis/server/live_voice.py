@@ -91,7 +91,19 @@ async def live_voice_ws(websocket: WebSocket) -> None:
 
     model = websocket.query_params.get("model") or _DEFAULT_LIVE_MODEL
     voice_name = websocket.query_params.get("voice") or _DEFAULT_LIVE_VOICE
-    system_instruction = _load_system_instruction()
+    mode = (websocket.query_params.get("mode") or "assistant").strip().lower()
+    target_lang = (websocket.query_params.get("target_lang") or "English").strip()
+
+    if mode == "dub":
+        system_instruction = (
+            f"You are Bi-Shop's real-time movie, show, and anime dubbing engine. "
+            f"Listen to the incoming dialogue and immediately speak the natural "
+            f"{target_lang} translation matching the speaker's emotion, energy, and pacing. "
+            f"Output ONLY the dubbed {target_lang} dialogue — never add commentary, "
+            f"introductions, or explanations. If there is only music or silence, stay silent."
+        )
+    else:
+        system_instruction = _load_system_instruction()
 
     client = genai.Client(api_key=api_key)
     config = types.LiveConnectConfig(
