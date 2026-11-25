@@ -17,9 +17,11 @@ import {
   Loader2,
   ScrollText,
   Database,
+  Sparkles,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
+import { useAvatarStore } from '../../lib/avatar-store';
 
 export function Sidebar() {
   const navigate = useNavigate();
@@ -37,6 +39,8 @@ export function Sidebar() {
 
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
+  const avatarEnabled = useAvatarStore((s) => s.enabled);
+  const toggleAvatar = useAvatarStore((s) => s.toggleEnabled);
 
   const ThemeIcon = settings.theme === 'light' ? Sun : settings.theme === 'dark' ? Moon : Monitor;
   const nextTheme = settings.theme === 'light' ? 'dark' : settings.theme === 'dark' ? 'system' : 'light';
@@ -103,6 +107,18 @@ export function Sidebar() {
               <PanelLeftClose size={18} />
             </button>
             <div className="flex items-center gap-1">
+              <button
+                onClick={toggleAvatar}
+                className="p-2 rounded-lg transition-colors cursor-pointer"
+                style={{
+                  color: avatarEnabled ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                title={avatarEnabled ? 'Hide Bi-Shop Avatar' : 'Show Bi-Shop Avatar'}
+              >
+                <Sparkles size={16} />
+              </button>
               <button
                 onClick={() => updateSettings({ theme: nextTheme })}
                 className="p-2 rounded-lg transition-colors cursor-pointer"

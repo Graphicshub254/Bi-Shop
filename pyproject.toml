@@ -33,6 +33,7 @@ dependencies = [
     "croniter>=2.0",
     "datasets>=5.0.1",
     "ddgs>=9.11.4",
+    "edge-tts>=7.0",
     "httpx>=0.27",
     "filelock>=4.2.1",
     "fsspec>=2026.6.0",
@@ -218,6 +219,8 @@ Repository = "https://github.com/open-jarvis/OpenJarvis"
 Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 
 [project.scripts]
+bi-shop = "openjarvis.cli:main"
+bishop = "openjarvis.cli:main"
 jarvis = "openjarvis.cli:main"
 openjarvis-eval = "openjarvis.evals.cli:main"
 

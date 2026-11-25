@@ -1198,7 +1198,7 @@ async def list_models(request: Request) -> ModelListResponse:
     # picker lands on whatever the engine happens to list first (e.g. a 1B
     # model) instead of [intelligence] default_model.
     active_model = getattr(request.app.state, "model", "")
-    if active_model and active_model in model_ids:
+    if active_model and (active_model in model_ids or active_model in known_models):
         model_ids = [active_model] + [m for m in model_ids if m != active_model]
 
     return ModelListResponse(
@@ -1364,6 +1364,104 @@ async def reload_cloud_engine(request: Request):
         request.app.state.engine_name = "multi"
 
     return {"status": "ok", "message": "Cloud engine reloaded"}
+
+
+_SUPPORTED_CLOUD_KEYS = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "ATLASCLOUD_API_KEY",
+)
+
+
+def _read_cloud_env_file() -> dict[str, str]:
+    keys_path = get_config_dir() / "cloud-keys.env"
+    values: dict[str, str] = {}
+    if not keys_path.exists():
+        return values
+    for raw_line in keys_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            val = v.strip()
+            if len(val) >= 2 and (
+                (val.startswith('"') and val.endswith('"'))
+                or (val.startswith("'") and val.endswith("'"))
+            ):
+                val = val[1:-1]
+            values[k.strip()] = val
+    return values
+
+
+def _write_cloud_env_file(values: dict[str, str]) -> None:
+    keys_path = get_config_dir() / "cloud-keys.env"
+    keys_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{k}={v}" for k, v in sorted(values.items()) if v]
+    keys_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+@router.get("/v1/cloud/keys/status")
+async def cloud_keys_status():
+    """Return boolean presence status for supported cloud API keys (never values)."""
+    import os
+
+    file_keys = _read_cloud_env_file()
+    status: dict[str, bool] = {}
+    for key_name in _SUPPORTED_CLOUD_KEYS:
+        present = bool(os.environ.get(key_name) or file_keys.get(key_name))
+        if key_name == "GEMINI_API_KEY" and not present:
+            present = bool(os.environ.get("GOOGLE_API_KEY") or file_keys.get("GOOGLE_API_KEY"))
+        status[key_name] = present
+    return status
+
+
+@router.post("/v1/cloud/keys")
+async def save_cloud_key_endpoint(request: Request):
+    """Persist a cloud API key locally in ~/.openjarvis/cloud-keys.env and hot-reload."""
+    import os
+
+    body = await request.json()
+    key_name = str(body.get("key_name", "")).strip()
+    key_value = str(body.get("key_value", "")).strip()
+    if key_name not in _SUPPORTED_CLOUD_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unsupported cloud key: {key_name}")
+
+    file_keys = _read_cloud_env_file()
+    if key_value:
+        file_keys[key_name] = key_value
+        os.environ[key_name] = key_value
+    else:
+        file_keys.pop(key_name, None)
+        os.environ.pop(key_name, None)
+    _write_cloud_env_file(file_keys)
+
+    # Hot-reload CloudEngine in-place
+    try:
+        from openjarvis.engine.cloud import CloudEngine
+        from openjarvis.engine.multi import MultiEngine
+
+        cloud = CloudEngine()
+        if cloud.health():
+            outer = request.app.state.engine
+            inner = getattr(outer, "_inner", outer)
+            if isinstance(inner, MultiEngine):
+                new_engines = [(k, e) for k, e in inner._engines if k != "cloud"]
+                new_engines.append(("cloud", cloud))
+                inner._engines = new_engines
+                inner._refresh_map()
+            else:
+                engine_name = getattr(request.app.state, "engine_name", "local")
+                new_multi = MultiEngine([(engine_name, inner), ("cloud", cloud)])
+                if hasattr(outer, "_inner"):
+                    outer._inner = new_multi
+                else:
+                    request.app.state.engine = new_multi
+                request.app.state.engine_name = "multi"
+    except Exception:
+        pass
+
+    return {"status": "ok", "key": key_name, "set": bool(key_value)}
 
 
 @router.get("/v1/savings")
