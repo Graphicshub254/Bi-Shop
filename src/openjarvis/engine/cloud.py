@@ -397,7 +397,7 @@ def _sanitize_google_schema(schema: Any) -> Any:
         return schema
     cleaned: Dict[str, Any] = {}
     for k, v in schema.items():
-        if k in ("additionalProperties", "$schema", "default"):
+        if k in ("additionalProperties", "$schema", "default", "anyOf", "oneOf", "allOf"):
             continue
         if k == "properties" and isinstance(v, dict):
             cleaned[k] = {pk: _sanitize_google_schema(pv) for pk, pv in v.items()}
