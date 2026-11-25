@@ -391,6 +391,29 @@ def _convert_tools_to_anthropic(
     return result
 
 
+def _sanitize_google_schema(schema: Any) -> Any:
+    """Normalize JSON Schema dicts so Google Gemini function_declarations accept them."""
+    if not isinstance(schema, dict):
+        return schema
+    cleaned: Dict[str, Any] = {}
+    for k, v in schema.items():
+        if k in ("additionalProperties", "$schema", "default"):
+            continue
+        if k == "properties" and isinstance(v, dict):
+            cleaned[k] = {pk: _sanitize_google_schema(pv) for pk, pv in v.items()}
+        elif k == "items":
+            cleaned[k] = _sanitize_google_schema(v)
+        elif isinstance(v, list):
+            cleaned[k] = [_sanitize_google_schema(item) for item in v]
+        elif isinstance(v, dict):
+            cleaned[k] = _sanitize_google_schema(v)
+        else:
+            cleaned[k] = v
+    if cleaned.get("type") == "array" and "items" not in cleaned:
+        cleaned["items"] = {"type": "object"}
+    return cleaned
+
+
 def _convert_tools_to_google(
     openai_tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -402,7 +425,7 @@ def _convert_tools_to_google(
             {
                 "name": func.get("name", ""),
                 "description": func.get("description", ""),
-                "parameters": func.get("parameters", {}),
+                "parameters": _sanitize_google_schema(func.get("parameters", {})),
             }
         )
     return declarations
