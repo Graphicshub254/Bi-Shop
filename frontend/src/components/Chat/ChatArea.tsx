@@ -43,15 +43,84 @@ export function ChatArea() {
     useTtsStore.getState().ensureHealth();
   }, [voiceOutputEnabled]);
 
-  // Speak on the falling edge of a stream -- the moment a reply finishes -- and
-  // never merely because a finished reply happens to be on screen. Opening the
-  // app or switching conversations would otherwise read stale history aloud,
-  // and browsers block that anyway: playback with no preceding user gesture is
-  // rejected outright, so the failure would be silent in both senses.
+  // Sentence-streaming TTS: speak each completed sentence as soon as it arrives
+  // during streaming so Bi-Shop starts talking in ~1s instead of waiting for
+  // the entire response to finish.
+  const spokenCursorRef = useRef<{ msgId: string | null; offset: number }>({
+    msgId: null,
+    offset: 0,
+  });
+
+  useEffect(() => {
+    if (!isCurrentChatStreaming || !voiceOutputEnabled || !voiceAutoplay) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant') return;
+
+    const tts = useTtsStore.getState();
+    if (tts.available !== true) return;
+
+    if (spokenCursorRef.current.msgId !== last.id) {
+      spokenCursorRef.current = { msgId: last.id, offset: 0 };
+      tts.markAutoSpoken(last.id);
+    }
+
+    const clean = stripThinkTags(streamState.content || '');
+    const remaining = clean.slice(spokenCursorRef.current.offset);
+    if (remaining.length < 18) return;
+
+    // Split on sentence boundaries (. ! ? followed by space/newline, or double newline)
+    const boundary = /([.!?]+(?:\s+|$)|\n{2,})/g;
+    let match: RegExpExecArray | null;
+    let lastEnd = 0;
+    while ((match = boundary.exec(remaining)) !== null) {
+      const end = match.index + match[0].length;
+      const chunk = remaining.slice(lastEnd, end).trim();
+      if (chunk.length >= 8) {
+        tts.enqueue(last.id, chunk);
+        lastEnd = end;
+      }
+    }
+    if (lastEnd > 0) {
+      spokenCursorRef.current.offset += lastEnd;
+    }
+  }, [
+    isCurrentChatStreaming,
+    streamState.content,
+    messages,
+    voiceOutputEnabled,
+    voiceAutoplay,
+  ]);
+
+  // Flush any remaining tail sentence when a stream finishes (or speak the full
+  // reply if it was a single short sentence without a mid-stream boundary).
   const streamingConversationRef = useRef<string | null>(null);
   useEffect(() => {
     const last = messages[messages.length - 1];
     const tts = useTtsStore.getState();
+    const wasStreamingThis =
+      streamingConversationRef.current !== null &&
+      streamingConversationRef.current === activeId &&
+      !streamState.isStreaming;
+
+    // Flush tail for a message that already streamed partial sentences
+    if (
+      wasStreamingThis &&
+      voiceOutputEnabled &&
+      voiceAutoplay &&
+      last &&
+      last.role === 'assistant' &&
+      spokenCursorRef.current.msgId === last.id
+    ) {
+      const clean = stripThinkTags(last.content || '');
+      const tail = clean.slice(spokenCursorRef.current.offset).trim();
+      spokenCursorRef.current = { msgId: null, offset: 0 };
+      streamingConversationRef.current = null;
+      if (tail && tts.available === true) {
+        tts.enqueue(last.id, tail);
+      }
+      return;
+    }
+
     const justFinished = shouldAutoplayFinishedReply(
       streamingConversationRef.current,
       activeId,
@@ -66,8 +135,6 @@ export function ChatArea() {
 
     if (!last || last.role !== 'assistant' || activeId === null) return;
 
-    // Model loading may still be in flight when a fast reply completes. Wait
-    // for the probe, then confirm that this is still the active finished reply.
     const completedConversationId = activeId;
     const completedMessageId = last.id;
     void tts.ensureHealth().then(() => {

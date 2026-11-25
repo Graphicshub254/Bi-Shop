@@ -1,5 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, Sparkles, Volume2, VolumeX, Mic, MicOff, Square } from 'lucide-react';
+import { useAppStore } from '../../lib/store';
+import { useTts } from '../../hooks/useTts';
+import { useLiveVoice } from '../../hooks/useLiveVoice';
 import {
   useAvatarStore,
   type Avatar2DStyle,
@@ -57,7 +60,20 @@ export function AvatarPanel() {
   const setLive2dSdkUrl = useAvatarStore((s) => s.setLive2dSdkUrl);
   const setExpressionOverride = useAvatarStore((s) => s.setExpressionOverride);
 
+  const voiceAutoplay = useAppStore((s) => s.settings.voiceAutoplay);
+  const voiceOutputEnabled = useAppStore((s) => s.settings.voiceOutputEnabled);
+  const updateSettings = useAppStore((s) => s.updateSettings);
+  const tts = useTts();
+  const voiceOn = voiceOutputEnabled && voiceAutoplay;
+
+  const toggleVoice = () => {
+    const next = !voiceOn;
+    if (!next) tts.stop();
+    updateSettings({ voiceOutputEnabled: next, voiceAutoplay: next });
+  };
+
   const driver = useAvatarDriver();
+  const liveVoice = useLiveVoice();
 
   if (!enabled) return null;
 
@@ -66,7 +82,9 @@ export function AvatarPanel() {
       ? 'Speaking'
       : driver.activity === 'thinking'
         ? 'Thinking'
-        : 'Idle';
+        : liveVoice.listening
+          ? 'Listening'
+          : 'Idle';
 
   return (
     <aside
@@ -99,15 +117,26 @@ export function AvatarPanel() {
             {statusLabel}
           </span>
         </div>
-        <button
-          onClick={() => setEnabled(false)}
-          className="p-1 rounded-md cursor-pointer transition-colors"
-          style={{ color: 'var(--color-text-secondary)' }}
-          title="Hide Avatar Panel"
-          aria-label="Hide Avatar Panel"
-        >
-          <X size={15} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggleVoice}
+            className="p-1 rounded-md cursor-pointer transition-colors"
+            style={{ color: voiceOn ? accentColor : 'var(--color-text-secondary)' }}
+            title={voiceOn ? 'Auto-speak ON (click to mute)' : 'Auto-speak OFF (click to enable)'}
+            aria-label={voiceOn ? 'Mute auto-speak' : 'Enable auto-speak'}
+          >
+            {voiceOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          </button>
+          <button
+            onClick={() => setEnabled(false)}
+            className="p-1 rounded-md cursor-pointer transition-colors"
+            style={{ color: 'var(--color-text-secondary)' }}
+            title="Hide Avatar Panel"
+            aria-label="Hide Avatar Panel"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       {/* Renderer Mode Switcher */}
@@ -208,11 +237,60 @@ export function AvatarPanel() {
         )}
       </div>
 
-      {/* Footer Controls: Expression + Accent Color */}
+      {/* Footer Controls: Live Talk + Expression + Accent Color */}
       <div
         className="px-3 py-2.5 flex flex-col gap-2 shrink-0"
         style={{ borderTop: '1px solid var(--color-border)' }}
       >
+        {/* Hands-Free Live Talk Controls */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={liveVoice.toggle}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-medium cursor-pointer transition-colors"
+            style={{
+              background: liveVoice.active ? '#ef4444' : accentColor,
+              color: liveVoice.active ? '#ffffff' : '#0f172a',
+            }}
+            title="Start or stop hands-free back-and-forth voice conversation"
+          >
+            {liveVoice.active ? <MicOff size={13} /> : <Mic size={13} />}
+            <span>
+              {liveVoice.active
+                ? liveVoice.listening
+                  ? 'Listening… (Stop)'
+                  : 'Live Talk On (Stop)'
+                : 'Live Talk'}
+            </span>
+          </button>
+          {tts.isSpeaking && (
+            <button
+              onClick={tts.stop}
+              className="p-1.5 rounded-lg cursor-pointer"
+              style={{
+                background: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+              }}
+              title="Interrupt Bi-Shop"
+              aria-label="Interrupt Bi-Shop"
+            >
+              <Square size={12} />
+            </button>
+          )}
+        </div>
+
+        {(liveVoice.transcript || liveVoice.error) && (
+          <div
+            className="px-2 py-1 rounded text-[11px] truncate"
+            style={{
+              background: 'var(--color-bg-secondary)',
+              color: liveVoice.error ? 'var(--color-error)' : 'var(--color-text-secondary)',
+            }}
+          >
+            {liveVoice.error ?? `"${liveVoice.transcript}"`}
+          </div>
+        )}
+
         <div className="flex items-center gap-1">
           {EXPRESSION_OPTIONS.map((opt) => {
             const active = expressionOverride === opt.id;

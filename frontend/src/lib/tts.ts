@@ -23,6 +23,8 @@ interface TtsStore {
   /** Last message spoken by autoplay, so a re-render never repeats it. */
   autoSpokenId: string | null;
   speak: (id: string, text: string) => Promise<void>;
+  /** Queue a streaming sentence for low-latency sequential playback with prefetch. */
+  enqueue: (id: string, text: string) => void;
   stop: () => void;
   ensureHealth: () => Promise<void>;
   markAutoSpoken: (id: string) => void;
@@ -35,6 +37,22 @@ let objectUrl: string | null = null;
 let controller: AbortController | null = null;
 let token = 0;
 let healthProbe: Promise<void> | null = null;
+
+interface QueuedChunk {
+  id: string;
+  ac: AbortController;
+  blobPromise: Promise<Blob>;
+}
+let chunkQueue: QueuedChunk[] = [];
+let drainingQueue = false;
+
+function clearQueue(): void {
+  for (const item of chunkQueue) {
+    item.ac.abort();
+  }
+  chunkQueue = [];
+  drainingQueue = false;
+}
 
 /** Only a stream ending in the active conversation may trigger autoplay. */
 export function shouldAutoplayFinishedReply(
@@ -106,6 +124,7 @@ export const useTtsStore = create<TtsStore>((set, get) => ({
     // fenced off by the token, even if the abort loses the race.
     token += 1;
     const mine = token;
+    clearQueue();
     teardown();
     set({ state: 'loading', speakingId: id, error: null, errorId: null });
 
@@ -147,8 +166,69 @@ export const useTtsStore = create<TtsStore>((set, get) => ({
     }
   },
 
+  enqueue: (id: string, text: string) => {
+    const trimmed = toSpeakableText(text);
+    if (!trimmed) return;
+
+    const ac = new AbortController();
+    // Kick off synthesis immediately so the next sentence is already fetched
+    // while the current sentence is still playing.
+    const blobPromise = synthesizeSpeech(trimmed, { signal: ac.signal });
+    chunkQueue.push({ id, ac, blobPromise });
+
+    if (drainingQueue) return;
+    drainingQueue = true;
+    const sessionToken = token;
+
+    if (get().state === 'idle') {
+      set({ state: 'loading', speakingId: id, error: null, errorId: null });
+    }
+
+    const drain = async () => {
+      while (chunkQueue.length > 0) {
+        if (sessionToken !== token) return;
+        const next = chunkQueue.shift()!;
+        try {
+          const blob = await next.blobPromise;
+          if (sessionToken !== token) return;
+
+          teardown();
+          const url = URL.createObjectURL(blob);
+          objectUrl = url;
+          const el = new Audio(url);
+          audio = el;
+
+          await new Promise<void>((resolve, reject) => {
+            el.onended = () => resolve();
+            el.onerror = () => reject(new Error('Playback failed'));
+            el.play()
+              .then(() => {
+                if (sessionToken === token) {
+                  set({ state: 'speaking', speakingId: next.id });
+                }
+              })
+              .catch(reject);
+          });
+        } catch (err) {
+          if (sessionToken !== token) return;
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          // Skip a failed chunk rather than locking the voice queue
+        }
+      }
+
+      if (sessionToken === token) {
+        teardown();
+        drainingQueue = false;
+        set({ state: 'idle', speakingId: null });
+      }
+    };
+
+    void drain();
+  },
+
   stop: () => {
     token += 1;
+    clearQueue();
     teardown();
     set({ state: 'idle', speakingId: null, error: null, errorId: null });
   },
@@ -156,6 +236,7 @@ export const useTtsStore = create<TtsStore>((set, get) => ({
 
 /** Test seam: reset module-level playback handles between cases. */
 export function __resetTtsForTests(): void {
+  clearQueue();
   teardown();
   token = 0;
   healthProbe = null;

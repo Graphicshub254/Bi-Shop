@@ -1164,9 +1164,20 @@ async def synthesize_speech(request: Request, body: SpeechSynthesizeRequest):
         logger.exception("Speech synthesis failed")
         raise HTTPException(status_code=500, detail="Speech synthesis failed") from exc
 
+    fmt = (getattr(result, "format", "") or "wav").lower()
+    media_type_map = {
+        "mp3": "audio/mpeg",
+        "mpeg": "audio/mpeg",
+        "wav": "audio/wav",
+        "ogg": "audio/ogg",
+        "opus": "audio/opus",
+        "webm": "audio/webm",
+    }
+    media_type = media_type_map.get(fmt, "audio/wav")
+
     return Response(
         content=result.audio,
-        media_type="audio/wav",
+        media_type=media_type,
         headers={
             "X-Voice-Id": result.voice_id or voice_id,
             "X-Sample-Rate": str(result.sample_rate),

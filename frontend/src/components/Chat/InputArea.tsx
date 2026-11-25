@@ -171,15 +171,17 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const content = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!content || streamState.isStreaming) return;
     if (!selectedModel) {
       toast.error('Pick a model first (⌘K)');
       return;
     }
 
-    setInput('');
+    if (typeof overrideText !== 'string') {
+      setInput('');
+    }
 
     let convId = activeId;
     if (!convId) {
@@ -554,6 +556,16 @@ export function InputArea() {
     maxTokens,
   ]);
 
+  // Allow Live Talk hands-free voice mode to dispatch spoken turns directly
+  useEffect(() => {
+    const onVoiceSend = (ev: Event) => {
+      const text = (ev as CustomEvent<{ text?: string }>).detail?.text;
+      if (text) void sendMessage(text);
+    };
+    window.addEventListener('bishop:voice-send', onVoiceSend);
+    return () => window.removeEventListener('bishop:voice-send', onVoiceSend);
+  }, [sendMessage]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -632,7 +644,7 @@ export function InputArea() {
               reason={micReason}
             />
             <button
-              onClick={sendMessage}
+              onClick={() => void sendMessage()}
               disabled={streamState.isStreaming || !input.trim() || modelLoading || !selectedModel}
               title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"

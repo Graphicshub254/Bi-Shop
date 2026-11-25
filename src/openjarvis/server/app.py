@@ -482,6 +482,9 @@ def create_app(
     app.include_router(upload_router)
     app.include_router(research_router)
     app.include_router(analytics_router)
+    from openjarvis.server.live_voice import live_voice_router
+
+    app.include_router(live_voice_router)
     include_all_routes(app)
 
     # Restore SendBlue channel bindings from database on startup

@@ -67,6 +67,8 @@ function saveAvatarSettings(state: PersistedAvatarSettings): void {
 
 export interface AvatarStore extends PersistedAvatarSettings {
   expressionOverride: AvatarExpression | null;
+  liveSpeaking: boolean;
+  liveAudioLevel: number;
   toggleEnabled: () => void;
   setEnabled: (enabled: boolean) => void;
   setRenderer: (renderer: AvatarRendererMode) => void;
@@ -76,6 +78,7 @@ export interface AvatarStore extends PersistedAvatarSettings {
   setLive2dModelUrl: (url: string) => void;
   setLive2dSdkUrl: (url: string) => void;
   setExpressionOverride: (expression: AvatarExpression | null) => void;
+  setLiveAudio: (speaking: boolean, level: number) => void;
 }
 
 const initial = loadAvatarSettings();
@@ -83,6 +86,8 @@ const initial = loadAvatarSettings();
 export const useAvatarStore = create<AvatarStore>((set, get) => ({
   ...initial,
   expressionOverride: null,
+  liveSpeaking: false,
+  liveAudioLevel: 0,
 
   toggleEnabled: () => {
     const next = !get().enabled;
@@ -130,4 +135,5 @@ export const useAvatarStore = create<AvatarStore>((set, get) => ({
   },
 
   setExpressionOverride: (expressionOverride) => set({ expressionOverride }),
+  setLiveAudio: (liveSpeaking, liveAudioLevel) => set({ liveSpeaking, liveAudioLevel }),
 }));

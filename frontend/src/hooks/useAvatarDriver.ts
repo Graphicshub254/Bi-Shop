@@ -25,8 +25,10 @@ export function useAvatarDriver(): AvatarDriverState {
   const streamPhase = useAppStore((s) => s.streamState.phase);
   const ttsState = useTtsStore((s) => s.state);
   const expressionOverride = useAvatarStore((s) => s.expressionOverride);
+  const liveSpeaking = useAvatarStore((s) => s.liveSpeaking);
+  const liveAudioLevel = useAvatarStore((s) => s.liveAudioLevel);
 
-  const isTtsSpeaking = ttsState === 'speaking';
+  const isTtsSpeaking = ttsState === 'speaking' || liveSpeaking;
   const isThinking = (isStreaming && !isTtsSpeaking && streamPhase !== 'generating') || ttsState === 'loading';
   const isSpeaking = isTtsSpeaking || (isStreaming && !isThinking);
 
@@ -70,9 +72,13 @@ export function useAvatarDriver(): AvatarDriverState {
           }
         }
 
-        // Smooth multi-harmonic syllable cadence when speaking
+        // Real-time PCM amplitude when Gemini Live Voice is speaking;
+        // smooth multi-harmonic cadence for text/TTS playback.
         let mouthOpen = 0;
-        if (activity === 'speaking') {
+        const liveLvl = useAvatarStore.getState().liveAudioLevel;
+        if (useAvatarStore.getState().liveSpeaking && liveLvl > 0.01) {
+          mouthOpen = Math.min(1, liveLvl);
+        } else if (activity === 'speaking') {
           const wave =
             0.45 +
             0.3 * Math.sin(t * 14.5) +
