@@ -149,7 +149,19 @@ export function ChatArea() {
       const text = stripThinkTags(currentLast.content);
       if (!text) return;
       currentTts.markAutoSpoken(completedMessageId);
-      void currentTts.speak(completedMessageId, text);
+      // Split into sentences and enqueue so Sentence 1 synthesizes in ~0.4s
+      // and starts playing immediately while remaining sentences prefetch.
+      const sentences = text
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2);
+      if (sentences.length > 1) {
+        for (const s of sentences) {
+          currentTts.enqueue(completedMessageId, s);
+        }
+      } else {
+        void currentTts.speak(completedMessageId, text);
+      }
     });
   }, [activeId, messages, streamState.isStreaming, isCurrentChatStreaming, voiceOutputEnabled, voiceAutoplay]);
   const currentStreamContent = isCurrentChatStreaming ? streamState.content : '';
