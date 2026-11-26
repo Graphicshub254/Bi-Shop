@@ -51,6 +51,8 @@ _BUILTIN_TOOL_MODULES = (
     "browser_axtree",
     "proactive_tools",
     "desktop_control",
+    "context_evolve",
+    "android_pilot",
 )
 
 for _name in _BUILTIN_TOOL_MODULES:
