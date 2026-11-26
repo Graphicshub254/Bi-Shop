@@ -54,6 +54,7 @@ _BUILTIN_TOOL_MODULES = (
     "context_evolve",
     "android_pilot",
     "folder_inspect",
+    "folder_organize",
 )
 
 for _name in _BUILTIN_TOOL_MODULES:
